@@ -167,75 +167,6 @@ def srtf_scheduling(processes):
     schedule.sort(key=lambda x: int(x["proceso"][1:]))
     return schedule, gantt_segments
 
-def rr_scheduling(processes, quantum):
-    """
-    Algoritmo Round Robin (RR) con quantum.
-    Retorna:
-      - schedule: resumen final por proceso
-      - gantt_segments: lista de segmentos para el diagrama de Gantt
-    """
-    # Copia de los procesos para no modificar los originales
-    proc_list = []
-    for p in processes:
-        new_p = p.copy()
-        new_p["remaining"] = p["rafaga"]  # Tiempo restante de ejecución
-        new_p["start_time"] = None  # Tiempo de inicio
-        new_p["finish_time"] = None  # Tiempo de finalización
-        proc_list.append(new_p)
-    
-    time = 0  # Tiempo actual
-    queue = []  # Cola de procesos listos
-    schedule = []  # Resumen final de los procesos
-    gantt_segments = []  # Segmentos para el diagrama de Gantt
-    
-    while True:
-        # Agregar procesos que han llegado al tiempo actual
-        for proc in proc_list:
-            if proc["time"] <= time and "added_to_queue" not in proc:
-                queue.append(proc)
-                proc["added_to_queue"] = True  # Marcar como agregado a la cola
-        
-        if not queue:
-            # Si no hay procesos en la cola, avanzar el tiempo
-            if all(p["finish_time"] is not None for p in proc_list):
-                break  # Todos los procesos han terminado
-            time += 1
-            continue
-        
-        # Tomar el primer proceso de la cola
-        current_proc = queue.pop(0)
-        
-        # Si es la primera vez que se ejecuta, registrar el tiempo de inicio
-        if current_proc["start_time"] is None:
-            current_proc["start_time"] = time
-        
-        # Ejecutar el proceso por el tiempo del quantum o lo que le queda
-        execution_time = min(quantum, current_proc["remaining"])
-        gantt_segments.append({
-            'proceso': current_proc["proceso"],
-            'start': time,
-            'finish': time + execution_time
-        })
-        
-        # Actualizar el tiempo y el tiempo restante del proceso
-        time += execution_time
-        current_proc["remaining"] -= execution_time
-        
-        # Si el proceso ha terminado, registrar el tiempo de finalización
-        if current_proc["remaining"] == 0:
-            current_proc["finish_time"] = time
-            schedule.append(current_proc)
-        else:
-            # Si no ha terminado, volver a agregarlo al final de la cola
-            queue.append(current_proc)
-    
-    # Calcular TE (Tiempo de Espera) y TS (Tiempo de Sistema) para cada proceso
-    for proc in schedule:
-        proc['TS'] = proc['finish_time'] - proc['time']
-        proc['TE'] = proc['TS'] - proc['rafaga']
-    
-    return schedule, gantt_segments
-
 # ----------------------- Funciones para crear tablas y diagramas con Matplotlib -----------------------
 def create_table(ax, cell_data, col_labels, title=""):
     ax.set_axis_off()
@@ -363,22 +294,14 @@ def plot_gantt_srtf(ax, segments, algorithm_name):
     ax.tick_params(axis='y', which='both', length=0)
 
 # ----------------------- Crear la figura con todos los algoritmos -----------------------
-def create_figure(quantum=2):
-    """
-    Crea una figura con los resultados de todos los algoritmos de scheduling.
-    :param quantum: Valor del quantum para el algoritmo Round Robin.
-    :return: Figura de Matplotlib.
-    """
-    # Ejecutar todos los algoritmos de scheduling
+def create_figure():
     fifo_schedule = fcfs_scheduling(processes_data)
     sjf_schedule = sjf_scheduling(processes_data)
     prio_schedule = priority_scheduling(processes_data)
     srtf_schedule, srtf_segments = srtf_scheduling(processes_data)
-    rr_schedule, rr_segments = rr_scheduling(processes_data, quantum=quantum)  # Usar el quantum
     
-    # Crear la figura
-    fig = plt.figure(figsize=(25, 20))
-    gs = GridSpec(5, 4, figure=fig, height_ratios=[1, 1, 1, 1, 1])
+    fig = plt.figure(figsize=(20, 15))
+    gs = GridSpec(4, 3, figure=fig, height_ratios=[1, 1, 1, 1])
     
     # Fila 0: FIFO
     ax_fifo_te = fig.add_subplot(gs[0, 0])
@@ -412,15 +335,6 @@ def create_figure(quantum=2):
     create_table(ax_srtf_ts, get_ts_table(srtf_schedule), ["Proceso", "TS"], title="SRTF - Tiempos de Sistema")
     plot_gantt_srtf(ax_srtf_gantt, srtf_segments, "SRTF")
     
-    # Fila 4: RR
-    ax_rr_te = fig.add_subplot(gs[4, 0])
-    ax_rr_ts = fig.add_subplot(gs[4, 1])
-    ax_rr_gantt = fig.add_subplot(gs[4, 2])
-    create_table(ax_rr_te, get_te_table(rr_schedule), ["Proceso", "TE"], title="RR - Tiempos de Espera")
-    create_table(ax_rr_ts, get_ts_table(rr_schedule), ["Proceso", "TS"], title="RR - Tiempos de Sistema")
-    plot_gantt_srtf(ax_rr_gantt, rr_segments, f"RR (Quantum={quantum})")  # Mostrar el quantum en el título
-    
-    # Ajustar el espaciado entre subplots
     plt.subplots_adjust(left=0.04, right=0.96, top=0.95, bottom=0.04, wspace=0.4, hspace=0.5)
     return fig
 
@@ -511,7 +425,7 @@ def get_process_data_from_entries():
     return data
 
 # ----------------------- Función para actualizar la simulación -----------------------
-def update_simulation(quantum):
+def update_simulation():
     global processes_data, fig_canvas
     new_data = get_process_data_from_entries()
     if not new_data:
@@ -519,17 +433,11 @@ def update_simulation(quantum):
         return
     processes_data = new_data
     
-    try:
-        quantum = int(quantum)
-    except ValueError:
-        messagebox.showerror("Error", "El quantum debe ser un número entero.")
-        return
-    
     # Eliminamos la figura anterior y creamos la nueva
     for widget in sim_frame.winfo_children():
         widget.destroy()
     
-    fig = create_figure(quantum)  # Pasar el quantum a create_figure
+    fig = create_figure()
     fig_canvas = FigureCanvasTkAgg(fig, master=sim_frame)
     fig_canvas.draw()
     fig_canvas.get_tk_widget().pack()
@@ -582,14 +490,7 @@ def main():
                         command=lambda: add_row(table_frame))
     btn_add.pack(side=tk.LEFT, padx=5)
     
-    # Campo de entrada para el quantum
-    quantum_label = tk.Label(btn_frame, text="Quantum:", bg='white')
-    quantum_label.pack(side=tk.LEFT, padx=5)
-    quantum_entry = tk.Entry(btn_frame, width=5)
-    quantum_entry.pack(side=tk.LEFT, padx=5)
-    quantum_entry.insert(0, "2")  # Valor por defecto
-    
-    btn_simulate = tk.Button(btn_frame, text="Simular", command=lambda: update_simulation(quantum_entry.get()))
+    btn_simulate = tk.Button(btn_frame, text="Simular", command=update_simulation)
     btn_simulate.pack(side=tk.LEFT, padx=5)
     
     # 3) Frame para la figura
